@@ -1,0 +1,81 @@
+name: Build & Release 🚀
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'LICENSE', 'docs/**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # ARC scale set from infrastructure on-premises/simitli/02-k8s/03_GitHub_Runner.tf (key "kite-auto").
+    runs-on: kite-auto-runner
+    # Public repo + self-hosted runner: never run pull requests from forks (untrusted code on the homelab).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          # Full history + tags: the version is derived from commits since the last vX.Y.Z tag.
+          fetch-depth: '0'
+          ref: ${{ github.sha }}
+
+      - name: Next version
+        id: version
+        run: |
+          VERSION="$(scripts/next-version.sh)"
+          if [ -z "${VERSION}" ]; then
+            echo "No commits since the last release - building only."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            VERSION="$(git describe --tags --abbrev=0 | sed 's/^v//')"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "Version: ${VERSION}"
+
+      # Same key as local builds (keystore/debug.keystore), so releases install over what's on the phone.
+      # Secret: base64 -w0 keystore/debug.keystore. Not available to pull requests from forks.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KITEAUTO_KEYSTORE_B64 }}
+        run: |
+          if [ -n "${KEYSTORE_B64}" ]; then
+            echo "${KEYSTORE_B64}" | base64 -d > "${RUNNER_TEMP}/kiteauto.keystore"
+            echo "KITEAUTO_KEYSTORE_FILE=${RUNNER_TEMP}/kiteauto.keystore" >> "$GITHUB_ENV"
+          elif [ "${{ steps.version.outputs.release }}" = "true" ]; then
+            echo "::error::KITEAUTO_KEYSTORE_B64 secret missing - refusing to release an unsigned APK"; exit 1
+          fi
+
+      - name: Build APK ⌛
+        run: ./build.sh release
+
+      - name: Upload APK (build artifact)
+        if: steps.version.outputs.release != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: out/release/*.apk
+
+      - name: Release
+        if: steps.version.outputs.release == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: KiteAuto ${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: out/release/*.apk
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/kiteauto.keystore"

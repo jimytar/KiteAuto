@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KiteAuto</string>
+    <string name="setup_help">Android Auto setup (once):\n1. Install and update KiteAuto with KingInstaller (classic method), otherwise Android Auto hides it.\n2. Android Auto → Customize launcher → enable KiteAuto.\n\nThese services appear in the car under the list button. Tap \"Open\" to sign in on the phone; the login is shared with the car.</string>
+</resources>

@@ -1,0 +1,8 @@
+build/
+.gradle/
+.kotlin/
+local.properties
+keystore/
+*.apk
+app/libs/aauto.aar
+out/
